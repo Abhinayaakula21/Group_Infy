@@ -1,0 +1,18 @@
+
+
+1. This project implements **hand gesture detection using Python**.
+2. It uses **OpenCV to capture video from the webcam**.
+3. The project uses **MediaPipe Hands module for real-time hand tracking**.
+4. The system detects **one hand and identifies its landmark points**.
+5. MediaPipe detects **21 hand landmarks including finger tips and wrist**.
+6. The program specifically tracks **thumb tip (landmark 4) and index finger tip (landmark 8)**.
+7. The coordinates of these landmarks are converted from **normalized values to pixel positions**.
+8. The **distance between thumb and index finger** is calculated using the **Pythagorean formula**.
+9. Based on the distance, the program classifies gestures such as **SELECT, HOLD, and RELEASE**.
+10. Circles are drawn on the **thumb and index finger tips** for visualization.
+11. A **line is drawn between the two fingers** to show the measured distance.
+12. The calculated **distance value is displayed on the screen**.
+13. The detected **gesture name is also displayed in the video window**.
+14. The system runs **continuously in real time using the webcam**.
+15. The program stops when the user **presses the 'q' key**.
+
