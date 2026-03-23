@@ -1,13 +1,20 @@
 import math
 import os
 import platform
+import warnings
 from collections import deque
+from contextlib import contextmanager
 from ctypes import POINTER, cast
 from datetime import datetime
 from pathlib import Path
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["GLOG_minloglevel"] = "2"
+warnings.filterwarnings(
+    "ignore",
+    message=r"SymbolDatabase\.GetPrototype\(\) is deprecated\..*",
+    category=UserWarning,
+)
 
 import cv2
 import mediapipe as mp
@@ -21,6 +28,18 @@ GRAPH_HISTORY_LENGTH = 90
 
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
+
+
+@contextmanager
+def suppress_native_stderr():
+    saved_stderr = os.dup(2)
+    try:
+        with open(os.devnull, "w", encoding="utf-8") as devnull:
+            os.dup2(devnull.fileno(), 2)
+            yield
+    finally:
+        os.dup2(saved_stderr, 2)
+        os.close(saved_stderr)
 
 
 def open_camera():
@@ -134,6 +153,17 @@ def build_mapping_graph(distance, volume_percent, history):
     return graph
 
 
+def process_hand_frame(hands, rgb_frame, suppress_warmup_state):
+    if suppress_warmup_state["ready"]:
+        return hands.process(rgb_frame)
+
+    with suppress_native_stderr():
+        results = hands.process(rgb_frame)
+
+    suppress_warmup_state["ready"] = True
+    return results
+
+
 def draw_volume_panel(frame, volume_percent, distance, detected, info_message=""):
     cv2.rectangle(frame, (35, 120), (90, 390), (0, 220, 120), 2)
     bar_top = int(np.interp(volume_percent, [0, 100], [390, 120]))
@@ -153,12 +183,13 @@ def draw_volume_panel(frame, volume_percent, distance, detected, info_message=""
 
 
 def main():
-    hands = mp_hands.Hands(
-        static_image_mode=False,
-        max_num_hands=1,
-        min_detection_confidence=0.7,
-        min_tracking_confidence=0.7,
-    )
+    with suppress_native_stderr():
+        hands = mp_hands.Hands(
+            static_image_mode=False,
+            max_num_hands=1,
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.7,
+        )
 
     try:
         volume_controller = get_volume_controller()
@@ -172,6 +203,7 @@ def main():
     graph_history = deque(maxlen=GRAPH_HISTORY_LENGTH)
     info_message = ""
     info_message_frames = 0
+    mediapipe_runtime = {"ready": False}
 
     cap = open_camera()
     if cap is None:
@@ -199,7 +231,7 @@ def main():
             failed_reads = 0
             frame = cv2.flip(frame, 1)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = hands.process(rgb)
+            results = process_hand_frame(hands, rgb, mediapipe_runtime)
             hand_detected = False
             target_percent = smooth_percent
 
