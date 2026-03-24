@@ -1,114 +1,161 @@
-# Import required libraries
-import cv2                      # OpenCV for video capture
-import mediapipe as mp          # MediaPipe for hand detection
-import math                     # For calculating distance
+# Import OpenCV library for camera and image processing
+import cv2
 
-# ---------------- STEP 1: Hand Detection Setup ----------------
+# Import MediaPipe
+import mediapipe as mp
 
-# Initialize MediaPipe Hands module
+# Import drawing utilities to draw hand landmarks
 mp_hands = mp.solutions.hands
-
-# Drawing utility to draw landmarks
 mp_draw = mp.solutions.drawing_utils
 
-# Create Hands object with detection settings
-hands = mp_hands.Hands(
-    static_image_mode=False,        # Detect in video stream
-    max_num_hands=1,                # Detect only one hand
-    model_complexity=0,             # Faster but slightly less accurate
-    min_detection_confidence=0.6,   # Minimum confidence for detection
-    min_tracking_confidence=0.6     # Minimum confidence for tracking
-)
+# Import math for distance calculation
+import math
 
-# Start webcam
-cap = cv2.VideoCapture(0)
 
-# Set camera resolution
-cap.set(3, 640)   # Width
-cap.set(4, 480)   # Height
+def classify_gesture(distance):
+    # Thresholds tuned for a 640x480 frame.
+    if distance < 45:
+        return "Gesture: Pinch (Decrease)", (0, 120, 255)
+    if distance > 130:
+        return "Gesture: Open (Increase)", (0, 220, 120)
+    return "Gesture: Neutral (Hold)", (255, 220, 0)
 
-# Main loop
-while True:
-    success, frame = cap.read()     # Capture frame
 
-    if not success:
-        print("Failed to access camera")
-        break
+def main():
+    # ===================== STEP 1: HAND DETECTION SETUP =====================
+    hands = mp_hands.Hands(
+        static_image_mode=False,          # False means continuous video detection
+        max_num_hands=1,                  # Detect only one hand
+        model_complexity=0,               # Faster model (0 = lightweight)
+        min_detection_confidence=0.6,     # Minimum confidence for detection
+        min_tracking_confidence=0.6       # Minimum confidence for tracking
+    )
 
-    # Convert BGR to RGB (MediaPipe needs RGB)
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # Start webcam (0 means default camera)
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not access webcam.")
+        hands.close()
+        raise SystemExit(1)
 
-    # Process the frame and detect hands
-    result = hands.process(rgb)
+    # Set camera width
+    cap.set(3, 640)
 
-    # If hand is detected
-    if result.multi_hand_landmarks:
-        for hand_landmarks in result.multi_hand_landmarks:
+    # Set camera height
+    cap.set(4, 480)
 
-            # Draw hand landmarks on frame
-            mp_draw.draw_landmarks(
+    failed_reads = 0
+    max_failed_reads = 30
+
+    try:
+        # Infinite loop to read camera frames
+        while True:
+            # Read frame from camera
+            success, frame = cap.read()
+
+            # If frame is not captured properly, exit loop
+            if not success:
+                failed_reads += 1
+                if failed_reads >= max_failed_reads:
+                    print("Warning: Failed to read frame from webcam repeatedly.")
+                    break
+                continue
+
+            failed_reads = 0
+
+            # Convert BGR image to RGB (MediaPipe requires RGB format)
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Process the frame to detect hands
+            result = hands.process(rgb)
+
+            gesture_text = "Gesture: Not detected"
+            gesture_color = (0, 100, 255)
+            distance_text = "Distance: --"
+
+            # If hand landmarks are detected
+            if result.multi_hand_landmarks:
+                # Use the first detected hand
+                hand_landmarks = result.multi_hand_landmarks[0]
+
+                # Draw hand landmarks and connections on the frame
+                mp_draw.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    mp_hands.HAND_CONNECTIONS
+                )
+
+                # Get frame height and width
+                h, w, _ = frame.shape
+
+                # ===================== STEP 2: DISTANCE CALCULATION =====================
+                # Get thumb tip landmark (ID = 4)
+                thumb = hand_landmarks.landmark[4]
+
+                # Get index finger tip landmark (ID = 8)
+                index = hand_landmarks.landmark[8]
+
+                # Convert normalized coordinates to pixel coordinates
+                x1, y1 = int(thumb.x * w), int(thumb.y * h)
+                x2, y2 = int(index.x * w), int(index.y * h)
+
+                # Calculate Euclidean distance between thumb and index finger
+                distance = math.hypot(x2 - x1, y2 - y1)
+
+                # Draw circle on thumb tip
+                cv2.circle(frame, (x1, y1), 8, (0, 255, 0), -1)
+
+                # Draw circle on index tip
+                cv2.circle(frame, (x2, y2), 8, (0, 255, 0), -1)
+
+                # Draw line between thumb and index finger
+                cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+
+                # Gesture class based on distance thresholds
+                gesture_text, gesture_color = classify_gesture(distance)
+                distance_text = f"Distance: {int(distance)} px"
+
+            # Display overlay values on screen
+            cv2.putText(
                 frame,
-                hand_landmarks,
-                mp_hands.HAND_CONNECTIONS
+                distance_text,
+                (20, 40),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (0, 255, 255),
+                2,
+            )
+            cv2.putText(
+                frame,
+                gesture_text,
+                (20, 75),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                gesture_color,
+                2,
+            )
+            cv2.putText(
+                frame,
+                "Press q to quit",
+                (20, 460),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                1,
             )
 
-            # Get frame dimensions
-            h, w, _ = frame.shape
+            # Show the final output window
+            cv2.imshow("Milestone 2 - Gesture Recognition", frame)
 
-            # ---------------- STEP 2: Distance Between Thumb & Index ----------------
+            # Press 'q' to exit program
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        # Always release resources
+        cap.release()
+        cv2.destroyAllWindows()
+        hands.close()
 
-            # Landmark 4 = Thumb tip
-            thumb = hand_landmarks.landmark[4]
 
-            # Landmark 8 = Index finger tip
-            index = hand_landmarks.landmark[8]
-
-            # Convert normalized coordinates to pixel values
-            x1, y1 = int(thumb.x * w), int(thumb.y * h)
-            x2, y2 = int(index.x * w), int(index.y * h)
-
-            # Calculate distance using Pythagoras formula
-            distance = math.hypot(x2 - x1, y2 - y1)
-
-            # Gesture classification based on distance
-            if distance < 30:
-                gesture = "SELECT"
-            elif distance < 80:
-                gesture = "HOLD"
-            else:
-                gesture = "RELEASE"
-
-            # Draw circles on finger tips
-            cv2.circle(frame, (x1, y1), 8, (0, 255, 0), -1)
-            cv2.circle(frame, (x2, y2), 8, (0, 255, 0), -1)
-
-            # Draw line between thumb and index
-            cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-
-            # Display distance
-            cv2.putText(frame, f"Distance: {int(distance)}",
-                        (20, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8,
-                        (0, 255, 255),
-                        2)
-
-            # Display detected gesture
-            cv2.putText(frame, f"Gesture: {gesture}",
-                        (20, 80),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8,
-                        (0, 255, 255),
-                        2)
-
-    # Show output window
-    cv2.imshow("Hand Detection", frame)
-
-    # Press 'q' to exit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-# Release resources
-cap.release()
-cv2.destroyAllWindows()
-hands.close()
+if __name__ == "__main__":
+    main()

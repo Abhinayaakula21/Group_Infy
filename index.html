@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gesture Volume Control</title>
+</head>
+<body>
+    <h2>Gesture Volume Control</h2>
+
+    <button onclick="startCamera()">Start</button>
+    <button onclick="stopCamera()">Stop</button>
+
+    <br><br>
+    <img src="/video_feed" width="640">
+
+    <script>
+        function startCamera() {
+            fetch('/start_camera', { method: 'POST' });
+        }
+
+        function stopCamera() {
+            fetch('/stop_camera', { method: 'POST' });
+        }
+    </script>
+</body>
+</html>
